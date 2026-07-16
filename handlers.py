@@ -257,6 +257,7 @@ async def handle_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat.title or "Không rõ",
         )
 
+        # Không lưu mật khẩu vào bảng history.
         save_history(
             group_name=chat.title or "Không rõ",
             group_id=chat.id,
@@ -266,7 +267,6 @@ async def handle_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
             recipient_name=recipient.full_name,
             request_type=request_type,
             account=account,
-            password=password,
         )
 
         mark_processed(source_chat_id, source_message_id)
