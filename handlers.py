@@ -7,7 +7,7 @@ from telegram.constants import ChatType, ParseMode
 from telegram.error import BadRequest, Forbidden
 from telegram.ext import ContextTypes
 
-from config import ADMIN_CHAT_IDS, OWNER_USER_IDS
+from config import OWNER_USER_IDS
 from database import (
     delete_pending_password,
     delete_pending_request,
@@ -111,7 +111,7 @@ async def send_password_to_user(context, user_id, request_type, account, passwor
     )
 
 
-async def send_admin_copies(
+async def send_confirmer_copy(
     context,
     request_type,
     account,
@@ -120,10 +120,9 @@ async def send_admin_copies(
     confirmer,
     group_name,
 ):
-    if not ADMIN_CHAT_IDS:
-        return
-
+    """Gửi bản sao riêng cho đúng người vừa xác nhận DONE."""
     type_name = "Mật khẩu đăng nhập" if request_type == "login" else "Mật khẩu rút tiền"
+
     text = (
         "📋 <b>BẢN SAO ĐÃ GỬI</b>\n\n"
         f"Loại: <b>{type_name}</b>\n"
@@ -136,16 +135,25 @@ async def send_admin_copies(
         f"Thời gian: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
     )
 
-    for admin_chat_id in ADMIN_CHAT_IDS:
-        try:
-            await context.bot.send_message(
-                chat_id=admin_chat_id,
-                text=text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=copy_keyboard(password),
-            )
-        except (Forbidden, BadRequest) as exc:
-            logger.error("Không gửi được bản sao cho admin %s: %s", admin_chat_id, exc)
+    try:
+        await context.bot.send_message(
+            chat_id=confirmer.id,
+            text=text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=copy_keyboard(password),
+        )
+    except Forbidden:
+        logger.warning(
+            "Không gửi được bản sao cho người xác nhận %s; "
+            "người này cần mở chat riêng với bot và bấm Start.",
+            confirmer.id,
+        )
+    except BadRequest as exc:
+        logger.error(
+            "Lỗi gửi bản sao cho người xác nhận %s: %s",
+            confirmer.id,
+            exc,
+        )
 
 
 async def can_use_done(context, chat_id, user_id):
@@ -246,8 +254,15 @@ async def handle_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
         notice = "✅ Đã gửi mật khẩu rút tiền vào tin nhắn riêng."
 
     try:
-        await send_password_to_user(context, recipient.id, request_type, account, password)
-        await send_admin_copies(
+        await send_password_to_user(
+            context,
+            recipient.id,
+            request_type,
+            account,
+            password,
+        )
+
+        await send_confirmer_copy(
             context,
             request_type,
             account,
@@ -257,7 +272,6 @@ async def handle_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat.title or "Không rõ",
         )
 
-        # Không lưu mật khẩu vào bảng history.
         save_history(
             group_name=chat.title or "Không rõ",
             group_id=chat.id,
